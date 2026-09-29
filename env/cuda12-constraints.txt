@@ -1,0 +1,7 @@
+# Preserve the tested inference versions when adding the CUDA 12 JAX wheel.
+# The NVIDIA driver and CUDA libraries still need to suit the host machine.
+numpy==1.23.5
+scipy==1.11.4
+jax==0.4.20
+jaxlib==0.4.20+cuda12.cudnn89
+nvidia-cudnn-cu12>=8.9,<9

@@ -1,0 +1,37 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.12.20"
+      - run: uv python install 3.10
+      - run: uv sync --locked --all-extras
+      - run: uv run --locked --all-extras python -m pytest -q
+      - run: uv run --locked --all-extras python -c "import jax; from colabdesign import mk_af_model; print(jax.__version__, jax.devices())"
+      - run: PYTHONPATH="$PWD/DockQ/src" uv run --locked --all-extras python -m DockQ.DockQ --help
+      - run: |
+          mkdir -p runs
+          PYTHONPATH="$PWD/DockQ/src" uv run --locked --all-extras python -m DockQ.DockQ \
+            examples/smoke/model.pdb examples/smoke/model.pdb \
+            --mapping XY:XY --json runs/dockq-smoke.json --short
+          uv run --locked --all-extras python -c "import json; assert json.load(open('runs/dockq-smoke.json'))['best_result']['XY']['native_contacts']['chain1']"
+      - run: |
+          uv run --locked --all-extras af2rank-pipeline clean \
+            --target smoke \
+            --fasta examples/smoke/target.fasta \
+            --models examples/smoke/model.pdb \
+            --out runs/smoke
+          test -f runs/smoke/cleaned/af2rank_input/smoke/model.pdb
+      - run: |
+          uv build --out-dir dist
+          uv venv --python 3.10 /tmp/af2rank-wheel
+          uv pip install --python /tmp/af2rank-wheel/bin/python 'dist/af2rank_pipeline-0.1.0-py3-none-any.whl[dockq]'
+          /tmp/af2rank-wheel/bin/python -c "from af2rank_pipeline.dockq_io import bundled_dockq_src; assert (bundled_dockq_src() / 'DockQ' / 'LICENSE').is_file()"
