@@ -2,6 +2,10 @@
 
 AF2Rank Pipeline scores existing protein-complex structures. It standardizes chains and residues against a target FASTA, runs AF2Rank through ColabDesign, calculates actifpTM and interface metrics, and combines the results in a CSV for model comparison.
 
+## Try it in Colab
+
+Open the [Colab notebook](https://colab.research.google.com/github/sahinmtaylan/af2rank-pipeline/blob/main/notebooks/colab_demo.ipynb) in a GPU runtime. It includes a 1BRS example and file uploads for your own FASTA and structures.
+
 ## Run locally
 
 Install Git and [uv](https://docs.astral.sh/uv/getting-started/installation/), then run these commands from a clone of this repository. The project uses Python 3.10 and a committed lockfile:
