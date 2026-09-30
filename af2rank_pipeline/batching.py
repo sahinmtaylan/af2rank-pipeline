@@ -4,7 +4,7 @@ import shutil
 from pathlib import Path
 
 from .ingest import RAW_MODEL_FIELDS, RawModel, discover_models, read_raw_models_manifest, write_raw_models_manifest
-from .manifests import write_csv
+from .manifests import read_jsonl, write_csv
 from .target import load_target_spec
 
 
@@ -73,12 +73,27 @@ def materialize_cleaned_batch(
     out_dir: str | Path,
     batch_manifest: str | Path,
     dest_dir: str | Path,
+    *, strict_clean: bool = False,
 ) -> int:
     cleaned_dir = Path(out_dir).expanduser().resolve() / "cleaned" / "af2rank_input" / target
     dest_dir = Path(dest_dir)
     raw_models = read_raw_batch_manifest(batch_manifest)
     if not raw_models:
         raise ValueError(f"Batch manifest contains no models: {batch_manifest}")
+    if not strict_clean:
+        # Skip logged cleaning failures; unexplained missing files remain errors.
+        failed_ids = {
+            row["model_id"]
+            for path in (cleaned_dir.parents[2] / "logs").glob("failures*.jsonl")
+            for row in read_jsonl(path)
+            if row.get("stage") == "clean" and row.get("model_id")
+        }
+        raw_models = [
+            model for model in raw_models
+            if model.model_id not in failed_ids or (cleaned_dir / f"{model.model_id}.pdb").is_file()
+        ]
+    if not raw_models:
+        raise ValueError("No cleaned models found in this batch")
     missing = [
         raw_model.model_id
         for raw_model in raw_models

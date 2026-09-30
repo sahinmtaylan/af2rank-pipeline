@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from dataclasses import asdict
 from pathlib import Path
 
@@ -199,7 +200,10 @@ def clean_model(
     )
 
 
-def _complete_clean_records(raw_models: list[RawModel], manifest: Path, failed_ids: list[str]) -> list[dict]:
+def _complete_clean_records(
+    raw_models: list[RawModel], manifest: Path, failed_ids: list[str], failures: Path,
+    *, strict_clean: bool = False,
+) -> list[dict]:
     if not raw_models:
         raise CleaningError("No supported models were found in the input")
     successful = {
@@ -209,15 +213,34 @@ def _complete_clean_records(raw_models: list[RawModel], manifest: Path, failed_i
         and row.get("status") == "ok"
         and row.get("cleaned_path")
         and Path(row["cleaned_path"]).is_file()
+        and row["model_id"] not in failed_ids
     }
     missing = [model.model_id for model in raw_models if model.model_id not in successful]
     if failed_ids or missing:
         affected = sorted(set(failed_ids) | set(missing))
-        raise CleaningError(
-            f"Cleaning incomplete: {len(affected)} of {len(raw_models)} model(s) failed or have no output "
-            f"({', '.join(affected[:5])}). See the run's logs directory."
+        reasons = {
+            row["model_id"]: row["message"]
+            for row in read_jsonl(failures)
+            if row.get("stage") == "clean" and row.get("model_id") in affected
+        }
+        details = "; ".join(
+            f"{model_id}: {reasons.get(model_id, 'No cleaned output was produced')}"
+            for model_id in affected[:5]
         )
-    return [successful[model.model_id] for model in raw_models]
+        message = (
+            f"{len(affected)} of {len(raw_models)} model(s) failed or have no output. "
+            f"{details}. See {failures} for details."
+        )
+        remaining = [model for model in raw_models if model.model_id in successful]
+        if strict_clean or not remaining:
+            raise CleaningError(f"Cleaning incomplete: {message}")
+        print(
+            f"af2rank-pipeline: warning: Skipped {len(affected)} of {len(raw_models)} input model(s). "
+            f"{details}. See {failures} for details. "
+            f"Continuing with {len(remaining)} cleaned model(s).",
+            file=sys.stderr,
+        )
+    return [successful[model.model_id] for model in raw_models if model.model_id in successful]
 
 
 def clean_models(
@@ -226,6 +249,7 @@ def clean_models(
     out_dir: str | Path,
     *,
     resume: bool = False,
+    strict_clean: bool = False,
     min_identity: float = 0.90,
     min_raw_coverage: float = 0.85,
     min_target_coverage: float = 0.50,
@@ -316,7 +340,9 @@ def clean_models(
             continue
         process_structure(raw_model)
 
-    all_ok_records = _complete_clean_records(raw_models, cleaning_manifest, failed_ids)
+    all_ok_records = _complete_clean_records(
+        raw_models, cleaning_manifest, failed_ids, failures, strict_clean=strict_clean
+    )
     decoy_list = Path(out_dir) / "cleaned" / "af2rank_decoy_list.txt"
     with decoy_list.open("w") as handle:
         for record in sorted(all_ok_records, key=lambda item: item["model_id"]):
@@ -332,6 +358,7 @@ def clean_batch(
     *,
     run_label: str,
     resume: bool = False,
+    strict_clean: bool = False,
     min_identity: float = 0.90,
     min_raw_coverage: float = 0.85,
     min_target_coverage: float = 0.50,
@@ -417,10 +444,14 @@ def clean_batch(
         if raw_model.model_number is not None and raw_model.source_path in multi_model_by_path:
             continue
         process_structure(raw_model)
-    return _complete_clean_records(raw_models, cleaning_manifest, failed_ids)
+    return _complete_clean_records(
+        raw_models, cleaning_manifest, failed_ids, failures, strict_clean=strict_clean
+    )
 
 
-def merge_clean_batch_manifests(out_dir: str | Path, target_prefix: str | None = None) -> list[dict]:
+def merge_clean_batch_manifests(
+    out_dir: str | Path, target_prefix: str | None = None, *, strict_clean: bool = False
+) -> list[dict]:
     dirs = ensure_run_dirs(out_dir)
     target_spec = load_target_spec_json(Path(out_dir) / "target_spec.json")
     if target_prefix:
@@ -451,13 +482,12 @@ def merge_clean_batch_manifests(out_dir: str | Path, target_prefix: str | None =
 
     raw_manifest = dirs["manifests"] / "raw_models.csv"
     if raw_manifest.is_file():
-        expected = {model.model_id for model in read_raw_models_manifest(raw_manifest)}
-        missing = sorted(expected - seen)
-        if missing:
-            raise CleaningError(
-                f"Merged cleaning manifests are missing {len(missing)} model(s) "
-                f"({', '.join(missing[:5])}). See the run's logs directory."
-            )
+        rows = _complete_clean_records(
+            read_raw_models_manifest(raw_manifest), dirs["manifests"] / "cleaning.jsonl",
+            [], dirs["logs"] / "failures.jsonl", strict_clean=strict_clean,
+        )
+    if not rows:
+        raise CleaningError("No cleaned models found to merge")
 
     decoy_list = Path(out_dir) / "cleaned" / "af2rank_decoy_list.txt"
     decoy_list.parent.mkdir(parents=True, exist_ok=True)

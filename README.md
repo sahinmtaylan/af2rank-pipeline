@@ -77,6 +77,8 @@ af2rank-pipeline run-target \
   --params params
 ```
 
+Models that fail cleaning are logged in `logs/failures.jsonl` and skipped; the remaining models are scored. Use `--strict-clean` with `run-target` or `clean` to stop if any model fails cleaning. A run stops if no models can be cleaned, or if scoring is incomplete for the cleaned models. The Colab notebook uses `--strict-clean`. Malformed ensemble markers are rejected before cleaning.
+
 The default run uses pTM model 2, one recycle, and one inference iteration. It masks template sequence and side chains. Use `af2rank-pipeline run-target --help` for other model and scoring settings. `--tm-exec` optionally points to a working [TMscore](https://zhanggroup.org/TM-score/) executable; without it, TM-score fields and the composite score are empty.
 
 ## Results

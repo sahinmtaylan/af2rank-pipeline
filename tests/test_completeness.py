@@ -11,15 +11,21 @@ from af2rank_pipeline.cleaning import clean_models
 from af2rank_pipeline.target import load_target_spec
 
 
-def test_clean_command_fails_when_no_input_model_can_be_cleaned(tmp_path: Path):
+def test_clean_command_fails_when_no_input_model_can_be_cleaned(tmp_path: Path, capsys):
     fasta = tmp_path / "target.fasta"
     fasta.write_text(">chain_A\nAC\n")
     bad_pdb = tmp_path / "bad.pdb"
     bad_pdb.write_text("END\n")
     out = tmp_path / "run"
 
-    with pytest.raises(CleaningError, match="Cleaning incomplete: 1 of 1"):
-        main(["clean", "--target", "example", "--fasta", str(fasta), "--models", str(bad_pdb), "--out", str(out)])
+    assert main([
+        "clean", "--target", "example", "--fasta", str(fasta),
+        "--models", str(bad_pdb), "--out", str(out),
+    ]) == 1
+    error = capsys.readouterr().err
+    assert "af2rank-pipeline: error: Cleaning incomplete: 1 of 1" in error
+    assert "bad: No protein chains found in model" in error
+    assert "Traceback" not in error
 
     assert (out / "logs" / "failures.jsonl").is_file()
 

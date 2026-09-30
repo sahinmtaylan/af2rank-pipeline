@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 from typing import Optional
 
 from .cleaning import clean_batch, clean_models, merge_clean_batch_manifests
+from .exceptions import PipelineError
 from .target import load_target_spec, load_target_spec_json
 
 
@@ -26,6 +28,7 @@ def _add_target_args(parser: argparse.ArgumentParser) -> None:
 
 def _add_clean_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--models", default=None, help="Directory, PDB, mmCIF, or CAPRI multi-model PDB")
+    parser.add_argument("--strict-clean", action="store_true", help="Stop if any input model fails cleaning.")
     parser.add_argument("--min-identity", type=float, default=0.90)
     parser.add_argument("--min-raw-coverage", type=float, default=0.85)
     parser.add_argument("--min-target-coverage", type=float, default=0.50)
@@ -100,6 +103,7 @@ def build_parser() -> argparse.ArgumentParser:
     clean.add_argument("--resume", action="store_true")
 
     merge_clean = subparsers.add_parser("merge-clean", help="Merge per-batch clean manifests")
+    merge_clean.add_argument("--strict-clean", action="store_true", help="Require cleaned output for every input model.")
     merge_clean.add_argument("--out", required=True, help="Run output directory")
     merge_clean.add_argument("--target-prefix", default=None, help="Optional target prefix to filter batch manifests")
 
@@ -120,6 +124,7 @@ def build_parser() -> argparse.ArgumentParser:
     dockq.add_argument("--jobs", type=int, default=1, help="Concurrent DockQ runs")
 
     aggregate = subparsers.add_parser("aggregate", help="Aggregate stage manifests into final_models.csv")
+    aggregate.add_argument("--strict-clean", action="store_true", help="Require results for every raw input, including models that failed cleaning.")
     aggregate.add_argument("--out", required=True, help="Run output directory")
     aggregate.add_argument("--allow-partial", action="store_true", help="Write exploratory tables despite missing stage results")
 
@@ -138,6 +143,7 @@ def build_parser() -> argparse.ArgumentParser:
     make_batches_cmd.add_argument("--overwrite", action="store_true")
 
     materialize = subparsers.add_parser("materialize-af2rank-batch", help="Copy cleaned PDBs for one raw batch to a local AF2Rank directory")
+    materialize.add_argument("--strict-clean", action="store_true", help="Require cleaned output for every batch input.")
     materialize.add_argument("--target-spec", required=True, help="Path to target_spec.json")
     materialize.add_argument("--out", required=True, help="Run output directory")
     materialize.add_argument("--batch-manifest", required=True, help="Raw model batch CSV")
@@ -160,7 +166,7 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def _run(argv: Optional[list[str]] = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
@@ -175,6 +181,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 args.out,
                 run_label=args.run_label,
                 resume=args.resume,
+                strict_clean=args.strict_clean,
                 min_identity=args.min_identity,
                 min_raw_coverage=args.min_raw_coverage,
                 min_target_coverage=args.min_target_coverage,
@@ -187,6 +194,7 @@ def main(argv: Optional[list[str]] = None) -> int:
                 args.models,
                 args.out,
                 resume=args.resume,
+                strict_clean=args.strict_clean,
                 min_identity=args.min_identity,
                 min_raw_coverage=args.min_raw_coverage,
                 min_target_coverage=args.min_target_coverage,
@@ -195,7 +203,9 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 0
 
     if args.command == "merge-clean":
-        rows = merge_clean_batch_manifests(args.out, target_prefix=args.target_prefix)
+        rows = merge_clean_batch_manifests(
+            args.out, target_prefix=args.target_prefix, strict_clean=args.strict_clean
+        )
         print(f"merged {len(rows)} cleaned model row(s)")
         return 0
 
@@ -223,7 +233,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     if args.command == "aggregate":
         from .aggregate import aggregate_results
 
-        rows = aggregate_results(args.out, allow_partial=args.allow_partial)
+        rows = aggregate_results(
+            args.out, allow_partial=args.allow_partial, strict_clean=args.strict_clean
+        )
         print(f"aggregated {len(rows)} model(s)")
         return 0
 
@@ -254,7 +266,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         from .batching import materialize_cleaned_batch
 
         target_spec = load_target_spec_json(args.target_spec)
-        count = materialize_cleaned_batch(target_spec.target, args.out, args.batch_manifest, args.dest_dir)
+        count = materialize_cleaned_batch(
+            target_spec.target, args.out, args.batch_manifest, args.dest_dir,
+            strict_clean=args.strict_clean,
+        )
         print(f"materialized {count} cleaned PDB(s)")
         return 0
 
@@ -300,6 +315,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             args.models,
             args.out,
             resume=args.resume,
+            strict_clean=args.strict_clean,
             min_identity=args.min_identity,
             min_raw_coverage=args.min_raw_coverage,
             min_target_coverage=args.min_target_coverage,
@@ -318,12 +334,21 @@ def main(argv: Optional[list[str]] = None) -> int:
         rows = aggregate_results(
             args.out,
             require_dockq=not args.skip_dockq,
+            strict_clean=args.strict_clean,
         )
         print(f"aggregated {len(rows)} model(s)")
         return 0
 
     parser.error(f"Unknown command: {args.command}")
     return 2
+
+
+def main(argv: Optional[list[str]] = None) -> int:
+    try:
+        return _run(argv)
+    except (PipelineError, FileNotFoundError) as exc:
+        print(f"af2rank-pipeline: error: {exc}", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

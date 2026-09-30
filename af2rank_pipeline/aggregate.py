@@ -198,6 +198,7 @@ def aggregate_results(
     require_af2rank: bool = True,
     require_dockq: bool = True,
     allow_partial: bool = False,
+    strict_clean: bool = False,
 ) -> list[dict]:
     dirs = ensure_run_dirs(out_dir)
     expected_ids: set[str] | None = None
@@ -222,7 +223,7 @@ def aggregate_results(
             for row in read_jsonl(dirs["manifests"] / "dockq_io.jsonl")
             if row.get("status") == "ok" and row.get("model_id")
         }
-        expected_ids = raw_ids or clean_ids
+        expected_ids = (raw_ids or clean_ids) if strict_clean else clean_ids
         if not expected_ids:
             raise ValueError("No cleaned models found to aggregate")
         stages = [("cleaning", clean_ids)]

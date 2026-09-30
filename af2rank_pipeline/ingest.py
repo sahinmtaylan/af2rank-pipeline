@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TextIO
 
+from .exceptions import CleaningError
 from .manifests import write_csv
 
 SUPPORTED_MODEL_SUFFIXES = {".pdb", ".cif", ".mmcif"}
@@ -51,13 +52,43 @@ def _open_model_text(path: Path) -> TextIO:
 
 def _model_records_in_pdb(path: Path) -> list[int]:
     records = []
+    open_model_line: int | None = None
+    first_unwrapped_atom: int | None = None
+
+    def invalid(reason: str) -> None:
+        raise CleaningError(
+            f"{path.name}: {reason}. Each ensemble member must start with a numbered "
+            "MODEL record and end with ENDMDL. Add the missing markers or upload "
+            "the structures as separate PDB files."
+        )
+
     with _open_model_text(path) as handle:
-        for line in handle:
-            if line.startswith("MODEL "):
+        for line_number, line in enumerate(handle, 1):
+            record = line[:6].strip()
+            if record == "MODEL":
+                if open_model_line is not None:
+                    invalid(f"MODEL at line {line_number} appears before ENDMDL for MODEL at line {open_model_line}")
+                if first_unwrapped_atom is not None:
+                    invalid(f"Atoms at line {first_unwrapped_atom} appear before the first MODEL header")
                 try:
-                    records.append(int(line[6:14].strip()))
+                    model_number = int(line[6:14].strip())
                 except ValueError:
-                    records.append(len(records) + 1)
+                    invalid(f"MODEL at line {line_number} has no valid integer model number")
+                records.append(model_number)
+                open_model_line = line_number
+            elif record == "ENDMDL":
+                if open_model_line is None:
+                    invalid(f"ENDMDL at line {line_number} has no preceding MODEL header")
+                open_model_line = None
+            elif record in {"ATOM", "HETATM"} and open_model_line is None:
+                if records:
+                    invalid(f"Atoms at line {line_number} appear outside a MODEL/ENDMDL block")
+                if first_unwrapped_atom is None:
+                    first_unwrapped_atom = line_number
+            elif record == "END" and open_model_line is not None:
+                invalid(f"MODEL at line {open_model_line} has no ENDMDL before END at line {line_number}")
+    if open_model_line is not None:
+        invalid(f"MODEL at line {open_model_line} has no ENDMDL before the end of the file")
     return records
 
 
