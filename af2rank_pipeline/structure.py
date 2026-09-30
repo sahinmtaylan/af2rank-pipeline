@@ -251,17 +251,18 @@ def parse_pdb_lines(lines: Iterable[str]) -> StructureRecord:
 def parse_mmcif(path: str | Path, model_number: int | None = None) -> StructureRecord:
     try:
         from Bio.PDB import MMCIFParser
-        from Bio.SeqUtils import seq1
     except ImportError as exc:
         raise DependencyError("mmCIF parsing requires biopython. Install the package dependencies.") from exc
 
     parser = MMCIFParser(QUIET=True)
     structure = parser.get_structure("-", str(path))
-    model_idx = 0 if model_number is None else max(0, model_number - 1)
-    try:
-        model = list(structure)[model_idx]
-    except IndexError as exc:
-        raise PipelineError(f"Model {model_number} not found in {path}") from exc
+    # Biopython's model.id is a position; serial_num is the number in the mmCIF.
+    model = next(
+        (model for model in structure if model_number is None or model.serial_num == model_number),
+        None,
+    )
+    if model is None:
+        raise PipelineError(f"Model {model_number} not found in {path}")
 
     chains: list[ChainRecord] = []
     for bio_chain in model:

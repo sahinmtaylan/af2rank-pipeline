@@ -27,7 +27,7 @@ def _add_target_args(parser: argparse.ArgumentParser) -> None:
 
 
 def _add_clean_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--models", default=None, help="Directory, PDB, mmCIF, or CAPRI multi-model PDB")
+    parser.add_argument("--models", default=None, help="Directory, PDB, or mmCIF; multi-model ensembles are supported")
     parser.add_argument("--strict-clean", action="store_true", help="Stop if any input model fails cleaning.")
     parser.add_argument("--min-identity", type=float, default=0.90)
     parser.add_argument("--min-raw-coverage", type=float, default=0.85)
@@ -136,7 +136,7 @@ def build_parser() -> argparse.ArgumentParser:
     make_batches_cmd = subparsers.add_parser("make-batches", help="Discover raw models and split into shared batch manifests")
     make_batches_cmd.add_argument("--target", required=True, help="Target name, e.g. example")
     make_batches_cmd.add_argument("--fasta", required=True, help="Per-chain target FASTA")
-    make_batches_cmd.add_argument("--models", required=True, help="Directory, PDB, mmCIF, or CAPRI multi-model PDB")
+    make_batches_cmd.add_argument("--models", required=True, help="Directory, PDB, or mmCIF; multi-model ensembles are supported")
     make_batches_cmd.add_argument("--out", required=True, help="Run output directory")
     make_batches_cmd.add_argument("--batch-root", required=True, help="Output batch root")
     make_batches_cmd.add_argument("--num-batches", type=int, required=True)

@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TextIO
 
-from .exceptions import CleaningError
+from .exceptions import CleaningError, DependencyError
 from .manifests import write_csv
 
 SUPPORTED_MODEL_SUFFIXES = {".pdb", ".cif", ".mmcif"}
@@ -92,6 +92,19 @@ def _model_records_in_pdb(path: Path) -> list[int]:
     return records
 
 
+def _model_records_in_mmcif(path: Path) -> list[int]:
+    try:
+        from Bio.PDB.MMCIF2Dict import MMCIF2Dict
+    except ImportError as exc:
+        raise DependencyError("mmCIF parsing requires biopython. Install the package dependencies.") from exc
+
+    data = MMCIF2Dict(str(path))
+    try:
+        return list(dict.fromkeys(int(value) for value in data.get("_atom_site.pdbx_PDB_model_num", [])))
+    except ValueError as exc:
+        raise CleaningError(f"{path.name}: _atom_site.pdbx_PDB_model_num contains an invalid model number") from exc
+
+
 def _capri_md5_by_model(path: Path) -> dict[int, str]:
     md5_by_model = {}
     pattern = re.compile(r"REMARK\s+9\s+MODEL\s+(\d+)\s+MD5\s+([0-9a-fA-F]{32})")
@@ -115,21 +128,22 @@ def discover_models(models_path: str | Path) -> list[RawModel]:
         if suffix not in SUPPORTED_MODEL_SUFFIXES:
             continue
         source_format = suffix.lstrip(".")
-        if suffix == ".pdb":
-            model_numbers = _model_records_in_pdb(path)
-            if len(model_numbers) > 1:
-                md5_by_model = _capri_md5_by_model(path)
-                for model_number in model_numbers:
-                    raw_models.append(
-                        RawModel(
-                            model_id=f"{sanitize_model_id(path.name)}_model_{model_number:04d}",
-                            source_path=str(path),
-                            source_format=source_format,
-                            model_number=model_number,
-                            capri_md5=md5_by_model.get(model_number),
-                        )
+        model_numbers = (
+            _model_records_in_pdb(path) if suffix == ".pdb" else _model_records_in_mmcif(path)
+        )
+        if len(model_numbers) > 1:
+            md5_by_model = _capri_md5_by_model(path) if suffix == ".pdb" else {}
+            for model_number in model_numbers:
+                raw_models.append(
+                    RawModel(
+                        model_id=f"{sanitize_model_id(path.name)}_model_{model_number:04d}",
+                        source_path=str(path),
+                        source_format=source_format,
+                        model_number=model_number,
+                        capri_md5=md5_by_model.get(model_number),
                     )
-                continue
+                )
+            continue
         raw_models.append(
             RawModel(
                 model_id=sanitize_model_id(path.name),

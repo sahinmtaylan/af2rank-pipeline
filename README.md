@@ -66,7 +66,7 @@ ACDEFGHIKLMNPQRSTVWY
 ACDEFGHIKLMNPQRSTVWY
 ```
 
-`--models` accepts a PDB or mmCIF file, a gzipped PDB, a multi-model PDB, or a directory of structures. Nonprotein components are not retained during cleaning. To score your own models:
+`--models` accepts a PDB or mmCIF file, a gzipped PDB, a multi-model PDB or mmCIF ensemble, or a directory of structures. Each ensemble member is scored separately. Nonprotein components are not retained during cleaning. To score your own models:
 
 ```bash
 af2rank-pipeline run-target \
