@@ -141,10 +141,13 @@ def build_asym_id_from_lengths(lengths):
 
 
 def get_asym_id(af_model, pdb_path, chain):
-    batch = af_model.model._inputs.get("batch", {})
-    if "asym_id" in batch:
-        asym_id = np.array(batch["asym_id"])
-        return asym_id[0] if asym_id.ndim > 1 else asym_id
+    inputs = af_model.model._inputs
+    batch = inputs.get("batch", {})
+    # Chain IDs must follow prepared residues rather than raw PDB counts.
+    for features in (inputs, batch):
+        if "asym_id" in features:
+            asym_id = np.array(features["asym_id"])
+            return asym_id[0] if asym_id.ndim > 1 else asym_id
 
     if "res_mask_per_chain" in af_model.model._inputs:
         masks = np.array(af_model.model._inputs["res_mask_per_chain"])
