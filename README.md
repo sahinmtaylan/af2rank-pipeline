@@ -4,7 +4,9 @@ AF2Rank Pipeline scores existing protein-complex structures. It standardizes cha
 
 ## Try it in Colab
 
-Open the [Colab notebook](https://colab.research.google.com/drive/1PiMNhGqRK9twzv0DPEkGGiplbtnu8JB_?usp=sharing) in a GPU runtime. It includes a 1BRS example and file uploads for your own FASTA and structures.
+[![Open in Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/sahinmtaylan/af2rank-pipeline/blob/main/notebooks/colab_demo.ipynb)
+
+Select a GPU runtime to run the included 1BRS example or upload your own FASTA and structures.
 
 ## Run locally
 
