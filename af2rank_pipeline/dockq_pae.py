@@ -123,13 +123,19 @@ def parse_chain_order(chain_order: str | Iterable[str] | None) -> tuple[str, ...
     return chains
 
 
-def read_pdb_residues_by_chain(pdb_file: Path | str) -> tuple[dict[str, list[int]], tuple[str, ...]]:
+def read_pdb_residues_by_chain(
+    pdb_file: Path | str,
+    *,
+    required_atom: str | None = None,
+) -> tuple[dict[str, list[int]], tuple[str, ...]]:
     residues_by_chain: dict[str, list[int]] = {}
     chain_order: list[str] = []
     seen: set[tuple[str, int, str]] = set()
     with open(pdb_file) as f:
         for line in f:
             if not line.startswith("ATOM"):
+                continue
+            if required_atom is not None and line[12:16].strip() != required_atom:
                 continue
             chain_id = line[21].strip() or " "
             resseq = line[22:26].strip()
@@ -152,8 +158,12 @@ def read_pdb_residues_by_chain(pdb_file: Path | str) -> tuple[dict[str, list[int
 def build_residue_to_pae_index(
     pdb_file: Path | str,
     pae_chain_order: str | Iterable[str] | None = None,
+    *,
+    required_atom: str | None = None,
 ) -> dict[tuple[str, int], int]:
-    residues_by_chain, pdb_chain_order = read_pdb_residues_by_chain(pdb_file)
+    residues_by_chain, pdb_chain_order = read_pdb_residues_by_chain(
+        pdb_file, required_atom=required_atom,
+    )
     chain_order = parse_chain_order(pae_chain_order) or pdb_chain_order
     missing = [chain for chain in chain_order if chain not in residues_by_chain]
     if missing:
@@ -321,10 +331,31 @@ def iter_pae_rows(
     # PDB outputs.
     res_to_idx = build_residue_to_pae_index(spec.native, spec.pae_chain_order)
     if len(res_to_idx) != pae_matrix.shape[0]:
-        raise ValueError(
-            f"{spec.model_id}: PAE size {pae_matrix.shape[0]} does not match "
-            f"{len(res_to_idx)} residues in {spec.native}"
+        # Pinned ColabDesign's ignore_missing=True filters on atom-mask column
+        # zero (N). Keep native residue IDs for DockQ contacts, but reproduce
+        # that exact filtered order rather than using renumbered scored PDBs.
+        prepared_res_to_idx = build_residue_to_pae_index(
+            spec.native, spec.pae_chain_order, required_atom="N",
         )
+        if len(prepared_res_to_idx) != pae_matrix.shape[0]:
+            raise ValueError(
+                f"{spec.model_id}: PAE size {pae_matrix.shape[0]} does not match "
+                f"{len(res_to_idx)} residues in {spec.native}, or "
+                f"{len(prepared_res_to_idx)} residues with backbone N atoms"
+            )
+        omitted = [
+            f"{chain}:{resnum}"
+            for chain, resnum in res_to_idx
+            if (chain, resnum) not in prepared_res_to_idx
+        ]
+        print(
+            f"af2rank-pipeline: warning: {spec.model_id}: ColabDesign omitted "
+            f"{len(omitted)} residue(s) without backbone N atoms "
+            f"({', '.join(omitted)}). Interface PAE excludes these residues; "
+            "DockQ retains the full cleaned input as its reference.",
+            file=sys.stderr,
+        )
+        res_to_idx = prepared_res_to_idx
 
     best_result = dockq_data.get("best_result", {})
     if not isinstance(best_result, dict):
